@@ -1,0 +1,14 @@
+org_name: nullstone
+name: gcp-vault-admin
+friendly_name: GCP Cloud Function for Vault Admin
+description: Runs the shared Vault admin function inside the VPC
+category: block
+subcategory: ""
+provider_types:
+  - gcp
+platform: vault
+subplatform: ""
+type: ""
+appCategories: []
+is_public: true
+tool_name: opentofu

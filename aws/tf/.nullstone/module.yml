@@ -1,0 +1,14 @@
+org_name: nullstone
+name: aws-vault-admin
+friendly_name: Lambda for Vault Admin
+description: Runs inside the VPC and binds one app IAM role to one Vault AWS auth role
+category: block
+subcategory: ""
+provider_types:
+  - aws
+platform: vault
+subplatform: ""
+type: ""
+appCategories: []
+is_public: true
+tool_name: opentofu

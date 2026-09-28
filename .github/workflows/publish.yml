@@ -1,0 +1,53 @@
+name: Nullstone
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  NULLSTONE_ORG: nullstone
+  NULLSTONE_API_KEY: ${{ secrets.NULLSTONE_API_KEY }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v6
+
+    - name: Set up Nullstone
+      uses: nullstone-io/setup-nullstone-action@v0
+
+    - name: Setup Go
+      uses: actions/setup-go@v7
+      with: { go-version: '1.26.5' }
+
+    - name: Build binaries into packages
+      run: |
+        export PATH=$(go env GOPATH)/bin:$PATH
+        make build
+        make package
+
+    - name: Find version
+      id: version
+      run: echo "MODULE_VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+    - id: publish-aws
+      name: Publish AWS
+      working-directory: aws/tf
+      run: |
+        nullstone modules publish \
+          --include=files/vault-admin.zip \
+          --version=${{ env.MODULE_VERSION }}
+    - id: publish-gcp
+      name: Publish GCP
+      working-directory: gcp/tf
+      run: |
+        nullstone modules publish \
+          --include=files/vault-admin.zip \
+          --version=${{ env.MODULE_VERSION }}
