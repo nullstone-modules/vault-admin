@@ -41,6 +41,7 @@ jobs:
       name: Publish AWS
       working-directory: aws/tf
       run: |
+        nullstone modules register --if missing
         nullstone modules publish \
           --include=files/vault-admin.zip \
           --version=${{ env.MODULE_VERSION }}
@@ -48,6 +49,7 @@ jobs:
       name: Publish GCP
       working-directory: gcp/tf
       run: |
+        nullstone modules register --if missing
         nullstone modules publish \
           --include=files/vault-admin.zip \
           --version=${{ env.MODULE_VERSION }}

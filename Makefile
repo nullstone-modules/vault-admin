@@ -9,7 +9,7 @@ build: tools
 	go build ./gcp/
 
 package: build
-	cd aws/tf && build-lambda-zip --output files/vault-admin.zip files/bootstrap
+	cd aws/tf && "$$(go env GOPATH)/bin/build-lambda-zip" --output files/vault-admin.zip files/bootstrap
 	go mod vendor
 	cp gcp/main.go main.go
 	rm -f gcp/tf/files/vault-admin.zip
