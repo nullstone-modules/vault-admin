@@ -86,6 +86,7 @@ resource "aws_lambda_function" "this" {
     variables = {
       VAULT_ADDR            = var.vault_addr
       VAULT_TOKEN_SECRET_ID = var.token_secret_arn
+      VAULT_TLS_SERVER_NAME = var.tls_server_name
     }
   }
 

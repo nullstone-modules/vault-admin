@@ -26,3 +26,9 @@ variable "network" {
     subnet_ids              = list(string)
   })
 }
+
+variable "tls_server_name" {
+  type        = string
+  default     = ""
+  description = "Name to verify in the Vault TLS certificate when it differs from the host in vault_addr."
+}

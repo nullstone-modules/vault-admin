@@ -181,3 +181,19 @@ func TestEnsureRoleRejectsUnknownAction(t *testing.T) {
 		t.Fatalf("calls = %#v", api.calls)
 	}
 }
+
+func TestEnsureRoleRejectsReservedAdminRoles(t *testing.T) {
+	for _, action := range []string{"create", "update", "delete"} {
+		api := &fakeAPI{}
+		err := EnsureRole(context.Background(), api, Event{
+			Data: EventData{Name: "admin-tenants", BoundIAMPrincipalARN: "arn:aws:iam::1:role/app"},
+			Tf:   EventTf{Action: action},
+		})
+		if err == nil {
+			t.Fatalf("%s: expected admin- role name to be rejected", action)
+		}
+		if len(api.calls) != 0 {
+			t.Fatalf("%s: reserved name must not call Vault, calls = %#v", action, api.calls)
+		}
+	}
+}

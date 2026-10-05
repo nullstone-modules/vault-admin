@@ -38,7 +38,8 @@ func handle(ctx context.Context, ev admin.Event) error {
 		return errEmptyToken
 	}
 	return admin.EnsureRole(ctx, admin.HTTPAPI{
-		Addr:  os.Getenv("VAULT_ADDR"),
-		Token: token,
+		Addr:          os.Getenv("VAULT_ADDR"),
+		Token:         token,
+		TLSServerName: os.Getenv("VAULT_TLS_SERVER_NAME"),
 	}, ev)
 }

@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,9 @@ import (
 )
 
 var roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// Human admin roles are written by the cluster nodes, never by this function.
+const reservedRolePrefix = "admin-"
 
 var deniedPolicies = map[string]struct{}{
 	"admin":        {},
@@ -45,7 +49,9 @@ type API interface {
 type HTTPAPI struct {
 	Addr  string
 	Token string
-	HTTP  *http.Client
+	// TLSServerName overrides the name verified in the server certificate.
+	TLSServerName string
+	HTTP          *http.Client
 }
 
 func (a HTTPAPI) Call(ctx context.Context, method, path string, body any) (int, []byte, error) {
@@ -68,6 +74,9 @@ func (a HTTPAPI) Call(ctx context.Context, method, path string, body any) (int, 
 	client := a.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: 8 * time.Second}
+		if a.TLSServerName != "" {
+			client.Transport = &http.Transport{TLSClientConfig: &tls.Config{ServerName: a.TLSServerName, MinVersion: tls.VersionTLS12}}
+		}
 	}
 	res, err := client.Do(req)
 	if err != nil {
@@ -82,6 +91,9 @@ func EnsureRole(ctx context.Context, api API, ev Event) error {
 	name := ev.Data.Name
 	if !roleName.MatchString(name) {
 		return fmt.Errorf("invalid vault role name")
+	}
+	if strings.HasPrefix(name, reservedRolePrefix) {
+		return fmt.Errorf("vault role name is reserved")
 	}
 	action := ev.Tf.Action
 	if action == "" {
