@@ -72,7 +72,7 @@ func writeCall(t *testing.T, api *fakeAPI) recorded {
 func TestEnsureRoleBindsOnlyTheGivenPrincipal(t *testing.T) {
 	api := &fakeAPI{}
 	err := EnsureRole(context.Background(), api, Event{
-		Data: EventData{Name: "billing", BoundIAMPrincipalARN: "arn:aws:iam::1:role/app", Policies: []string{"app"}},
+		Data: EventData{Name: "billing", BoundIAMPrincipalARN: "arn:aws:iam::1:role/app", Policies: []string{"apps-reader"}},
 		Tf:   EventTf{Action: "create"},
 	})
 	if err != nil {
@@ -81,7 +81,7 @@ func TestEnsureRoleBindsOnlyTheGivenPrincipal(t *testing.T) {
 	body := writeCall(t, api).body.(map[string]any)
 	arns := body["bound_iam_principal_arn"].([]string)
 	policies := body["policies"].([]string)
-	if len(arns) != 1 || arns[0] != "arn:aws:iam::1:role/app" || len(policies) != 1 || policies[0] != "app" {
+	if len(arns) != 1 || arns[0] != "arn:aws:iam::1:role/app" || len(policies) != 1 || policies[0] != "apps-reader" {
 		t.Fatalf("body = %#v", body)
 	}
 	if body["auth_type"] != "iam" {
@@ -101,7 +101,7 @@ func TestEnsureRoleRejectsAnotherName(t *testing.T) {
 }
 
 func TestEnsureRoleRejectsPlatformAndTenantPolicies(t *testing.T) {
-	for _, policy := range []string{"operator", "admin", "tenant-writer-other"} {
+	for _, policy := range []string{"operator", "admin", "tenant-writer-other", "app", "apps-auth", "apps-admin"} {
 		api := &fakeAPI{}
 		err := EnsureRole(context.Background(), api, Event{
 			Data: EventData{Name: "billing", BoundIAMPrincipalARN: "arn:aws:iam::1:role/app", Policies: []string{policy}},
@@ -118,7 +118,7 @@ func TestEnsureRoleRejectsPlatformAndTenantPolicies(t *testing.T) {
 func TestEnsureRoleRejectsRoleTakeover(t *testing.T) {
 	api := &fakeAPI{roles: map[string][]string{"billing": {"arn:aws:iam::1:role/other"}}}
 	err := EnsureRole(context.Background(), api, Event{
-		Data: EventData{Name: "billing", BoundIAMPrincipalARN: "arn:aws:iam::1:role/app", Policies: []string{"app"}},
+		Data: EventData{Name: "billing", BoundIAMPrincipalARN: "arn:aws:iam::1:role/app", Policies: []string{"apps-reader"}},
 	})
 	if err == nil {
 		t.Fatal("expected a different principal to be rejected")
@@ -133,7 +133,7 @@ func TestEnsureRoleRejectsRoleTakeover(t *testing.T) {
 func TestEnsureRoleRejectsPrincipalOnAnotherRole(t *testing.T) {
 	api := &fakeAPI{roles: map[string][]string{"payments": {"arn:aws:iam::1:role/app"}}}
 	err := EnsureRole(context.Background(), api, Event{
-		Data: EventData{Name: "billing", BoundIAMPrincipalARN: "arn:aws:iam::1:role/app", Policies: []string{"app"}},
+		Data: EventData{Name: "billing", BoundIAMPrincipalARN: "arn:aws:iam::1:role/app", Policies: []string{"apps-reader"}},
 	})
 	if err == nil {
 		t.Fatal("expected an existing binding to be rejected")
@@ -143,7 +143,7 @@ func TestEnsureRoleRejectsPrincipalOnAnotherRole(t *testing.T) {
 func TestEnsureRoleUpdateKeepsTheSamePrincipal(t *testing.T) {
 	api := &fakeAPI{roles: map[string][]string{"billing": {"arn:aws:iam::1:role/app"}}}
 	err := EnsureRole(context.Background(), api, Event{
-		Data: EventData{Name: "billing", BoundIAMPrincipalARN: "arn:aws:iam::1:role/app", Policies: []string{"app"}},
+		Data: EventData{Name: "billing", BoundIAMPrincipalARN: "arn:aws:iam::1:role/app", Policies: []string{"apps-reader"}},
 		Tf:   EventTf{Action: "update"},
 	})
 	if err != nil {
