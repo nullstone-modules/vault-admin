@@ -15,13 +15,49 @@ import (
 
 var roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// Apps get a tenant broker policy and nothing else; the cluster defines these two.
+var appsPolicy = regexp.MustCompile(`^apps-(reader|writer)$`)
+
 var deniedPolicies = map[string]struct{}{
 	"admin":        {},
-	"aws-auth":     {},
+	"apps-auth":    {},
 	"default":      {},
 	"operator":     {},
 	"provisioning": {},
 	"root":         {},
+}
+
+// authMethod is one Vault auth mount an app can log in through. The mount path equals the method name.
+type authMethod struct {
+	principal *regexp.Regexp
+	// boundField is the role field that lists bound principals.
+	boundField string
+	roleBody   func(principal string, policies []string) map[string]any
+}
+
+var authMethods = map[string]authMethod{
+	"aws": {
+		principal:  regexp.MustCompile(`^arn:aws[a-z-]*:iam::\d{12}:(role|user)/[\w+=,.@/-]+$`),
+		boundField: "bound_iam_principal_arn",
+		roleBody: func(principal string, policies []string) map[string]any {
+			return map[string]any{
+				"auth_type":               "iam",
+				"bound_iam_principal_arn": []string{principal},
+				"policies":                policies,
+			}
+		},
+	},
+	"gcp": {
+		principal:  regexp.MustCompile(`^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.gserviceaccount\.com$`),
+		boundField: "bound_service_accounts",
+		roleBody: func(principal string, policies []string) map[string]any {
+			return map[string]any{
+				"type":                   "iam",
+				"bound_service_accounts": []string{principal},
+				"policies":               policies,
+			}
+		},
+	},
 }
 
 type Event struct {
@@ -29,10 +65,12 @@ type Event struct {
 	Tf   EventTf   `json:"tf"`
 }
 
+// EventData names one app principal: an IAM role or user ARN (aws) or a service account email (gcp).
 type EventData struct {
-	Name                 string   `json:"name"`
-	BoundIAMPrincipalARN string   `json:"bound_iam_principal_arn"`
-	Policies             []string `json:"policies"`
+	Name      string   `json:"name"`
+	Method    string   `json:"method"`
+	Principal string   `json:"principal"`
+	Policies  []string `json:"policies"`
 }
 
 type EventTf struct {
@@ -89,22 +127,26 @@ func EnsureRole(ctx context.Context, api API, ev Event) error {
 	if !roleName.MatchString(name) {
 		return fmt.Errorf("invalid vault role name")
 	}
+	method, ok := authMethods[ev.Data.Method]
+	if !ok {
+		return fmt.Errorf("unknown auth method")
+	}
 	action := ev.Tf.Action
 	if action == "" {
 		action = "create"
 	}
 	switch action {
 	case "delete":
-		return deleteRole(ctx, api, name)
+		return deleteRole(ctx, api, ev.Data.Method, name)
 	case "create", "update":
-		return writeRole(ctx, api, name, ev.Data)
+		return writeRole(ctx, api, ev.Data.Method, method, name, ev.Data)
 	default:
 		return fmt.Errorf("invalid action")
 	}
 }
 
-func deleteRole(ctx context.Context, api API, name string) error {
-	status, _, err := api.Call(ctx, http.MethodDelete, "/v1/auth/aws/role/"+name, nil)
+func deleteRole(ctx context.Context, api API, mount, name string) error {
+	status, _, err := api.Call(ctx, http.MethodDelete, "/v1/auth/"+mount+"/role/"+name, nil)
 	if err != nil {
 		return err
 	}
@@ -114,9 +156,9 @@ func deleteRole(ctx context.Context, api API, name string) error {
 	return nil
 }
 
-func writeRole(ctx context.Context, api API, name string, data EventData) error {
-	if data.BoundIAMPrincipalARN == "" {
-		return fmt.Errorf("bound_iam_principal_arn is required")
+func writeRole(ctx context.Context, api API, mount string, method authMethod, name string, data EventData) error {
+	if !method.principal.MatchString(data.Principal) {
+		return fmt.Errorf("invalid %s principal", mount)
 	}
 	policies := data.Policies
 	if policies == nil {
@@ -125,17 +167,13 @@ func writeRole(ctx context.Context, api API, name string, data EventData) error 
 	if err := validatePolicies(policies); err != nil {
 		return err
 	}
-	if err := enableAWSAuth(ctx, api); err != nil {
+	if err := enableAuth(ctx, api, mount); err != nil {
 		return err
 	}
-	if err := guardBinding(ctx, api, name, data.BoundIAMPrincipalARN); err != nil {
+	if err := guardBinding(ctx, api, mount, method, name, data.Principal); err != nil {
 		return err
 	}
-	status, _, err := api.Call(ctx, http.MethodPost, "/v1/auth/aws/role/"+name, map[string]any{
-		"auth_type":               "iam",
-		"bound_iam_principal_arn": []string{data.BoundIAMPrincipalARN},
-		"policies":                policies,
-	})
+	status, _, err := api.Call(ctx, http.MethodPost, "/v1/auth/"+mount+"/role/"+name, method.roleBody(data.Principal, policies))
 	if err != nil {
 		return err
 	}
@@ -150,26 +188,27 @@ func validatePolicies(policies []string) error {
 		if !roleName.MatchString(policy) {
 			return fmt.Errorf("invalid vault policy name")
 		}
-		if _, denied := deniedPolicies[policy]; denied || strings.HasPrefix(policy, "tenant-") {
+		if _, denied := deniedPolicies[policy]; denied || !appsPolicy.MatchString(policy) {
 			return fmt.Errorf("vault policy is not allowed")
 		}
 	}
 	return nil
 }
 
-func enableAWSAuth(ctx context.Context, api API) error {
-	status, body, err := api.Call(ctx, http.MethodPost, "/v1/sys/auth/aws", map[string]string{"type": "aws"})
+func enableAuth(ctx context.Context, api API, mount string) error {
+	status, body, err := api.Call(ctx, http.MethodPost, "/v1/sys/auth/"+mount, map[string]string{"type": mount})
 	if err != nil {
 		return err
 	}
 	if status >= 400 && !bytes.Contains(body, []byte("already in use")) {
-		return fmt.Errorf("enable aws auth failed: %d", status)
+		return fmt.Errorf("enable %s auth failed: %d", mount, status)
 	}
 	return nil
 }
 
-func guardBinding(ctx context.Context, api API, name, principal string) error {
-	status, body, err := api.Call(ctx, "LIST", "/v1/auth/aws/role", nil)
+// guardBinding keeps one principal per role and one role per principal on a mount.
+func guardBinding(ctx context.Context, api API, mount string, method authMethod, name, principal string) error {
+	status, body, err := api.Call(ctx, "LIST", "/v1/auth/"+mount+"/role", nil)
 	if err != nil {
 		return err
 	}
@@ -191,7 +230,7 @@ func guardBinding(ctx context.Context, api API, name, principal string) error {
 		if !roleName.MatchString(key) {
 			return fmt.Errorf("invalid vault role name")
 		}
-		bound, found, err := readBoundPrincipals(ctx, api, key)
+		bound, found, err := readBoundPrincipals(ctx, api, mount, method, key)
 		if err != nil {
 			return err
 		}
@@ -200,21 +239,21 @@ func guardBinding(ctx context.Context, api API, name, principal string) error {
 		}
 		if key == name {
 			if len(bound) != 1 || bound[0] != principal {
-				return fmt.Errorf("vault role is bound to a different iam principal")
+				return fmt.Errorf("vault role is bound to a different principal")
 			}
 			continue
 		}
-		for _, arn := range bound {
-			if arn == principal {
-				return fmt.Errorf("iam principal is already bound to vault role %s", key)
+		for _, p := range bound {
+			if p == principal {
+				return fmt.Errorf("principal is already bound to vault role %s", key)
 			}
 		}
 	}
 	return nil
 }
 
-func readBoundPrincipals(ctx context.Context, api API, name string) ([]string, bool, error) {
-	status, body, err := api.Call(ctx, http.MethodGet, "/v1/auth/aws/role/"+name, nil)
+func readBoundPrincipals(ctx context.Context, api API, mount string, method authMethod, name string) ([]string, bool, error) {
+	status, body, err := api.Call(ctx, http.MethodGet, "/v1/auth/"+mount+"/role/"+name, nil)
 	if err != nil {
 		return nil, false, err
 	}
@@ -225,12 +264,16 @@ func readBoundPrincipals(ctx context.Context, api API, name string) ([]string, b
 		return nil, false, fmt.Errorf("read role failed: %d", status)
 	}
 	var role struct {
-		Data struct {
-			Bound []string `json:"bound_iam_principal_arn"`
-		} `json:"data"`
+		Data map[string]json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(body, &role); err != nil {
 		return nil, false, fmt.Errorf("read role failed")
 	}
-	return role.Data.Bound, true, nil
+	var bound []string
+	if raw, ok := role.Data[method.boundField]; ok {
+		if err := json.Unmarshal(raw, &bound); err != nil {
+			return nil, false, fmt.Errorf("read role failed")
+		}
+	}
+	return bound, true, nil
 }
