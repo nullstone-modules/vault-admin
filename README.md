@@ -7,3 +7,5 @@ Both entrypoints call the same writer. The writer creates one Vault AWS auth rol
 `make package` builds the zip each module publishes. The Vault cluster references `api.nullstone.io/nullstone/aws-vault-admin/aws`.
 
 The AWS function reads the Vault token from Secrets Manager at invoke time. The GCP function receives it as `VAULT_TOKEN`. The token is not returned to the app.
+
+Set `tls_server_name` (`VAULT_TLS_SERVER_NAME`) when the Vault certificate names a host other than `vault_addr`.

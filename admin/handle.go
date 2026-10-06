@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -45,7 +46,9 @@ type API interface {
 type HTTPAPI struct {
 	Addr  string
 	Token string
-	HTTP  *http.Client
+	// TLSServerName overrides the name verified in the server certificate.
+	TLSServerName string
+	HTTP          *http.Client
 }
 
 func (a HTTPAPI) Call(ctx context.Context, method, path string, body any) (int, []byte, error) {
@@ -68,6 +71,9 @@ func (a HTTPAPI) Call(ctx context.Context, method, path string, body any) (int, 
 	client := a.HTTP
 	if client == nil {
 		client = &http.Client{Timeout: 8 * time.Second}
+		if a.TLSServerName != "" {
+			client.Transport = &http.Transport{TLSClientConfig: &tls.Config{ServerName: a.TLSServerName, MinVersion: tls.VersionTLS12}}
+		}
 	}
 	res, err := client.Do(req)
 	if err != nil {
