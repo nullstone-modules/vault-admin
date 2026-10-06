@@ -91,7 +91,7 @@ func awsEvent(name string, policies ...string) Event {
 
 func TestEnsureRoleBindsOnlyTheGivenPrincipal(t *testing.T) {
 	api := &fakeAPI{}
-	ev := awsEvent("billing", "app")
+	ev := awsEvent("billing", "apps-reader")
 	ev.Tf.Action = "create"
 	if err := EnsureRole(context.Background(), api, ev); err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestEnsureRoleBindsOnlyTheGivenPrincipal(t *testing.T) {
 	body := writeCall(t, api).body.(map[string]any)
 	arns := body["bound_iam_principal_arn"].([]string)
 	policies := body["policies"].([]string)
-	if len(arns) != 1 || arns[0] != appARN || len(policies) != 1 || policies[0] != "app" {
+	if len(arns) != 1 || arns[0] != appARN || len(policies) != 1 || policies[0] != "apps-reader" {
 		t.Fatalf("body = %#v", body)
 	}
 	if body["auth_type"] != "iam" {
@@ -110,7 +110,7 @@ func TestEnsureRoleBindsOnlyTheGivenPrincipal(t *testing.T) {
 func TestEnsureRoleWritesGCPServiceAccounts(t *testing.T) {
 	api := &fakeAPI{mount: "gcp", roles: map[string][]string{"payments": {"other@proj.iam.gserviceaccount.com"}}}
 	err := EnsureRole(context.Background(), api, Event{
-		Data: EventData{Name: "billing", Method: "gcp", Principal: "app@proj.iam.gserviceaccount.com", Policies: []string{"app"}},
+		Data: EventData{Name: "billing", Method: "gcp", Principal: "app@proj.iam.gserviceaccount.com", Policies: []string{"apps-writer"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +164,7 @@ func TestEnsureRoleRejectsAnotherName(t *testing.T) {
 }
 
 func TestEnsureRoleRejectsPlatformAndTenantPolicies(t *testing.T) {
-	for _, policy := range []string{"operator", "admin", "apps-auth", "provisioning", "tenant-writer-other"} {
+	for _, policy := range []string{"operator", "admin", "apps-auth", "provisioning", "tenant-writer-other", "app", "apps-admin"} {
 		api := &fakeAPI{}
 		if err := EnsureRole(context.Background(), api, awsEvent("billing", policy)); err == nil {
 			t.Fatalf("policy %s was accepted", policy)
@@ -177,7 +177,7 @@ func TestEnsureRoleRejectsPlatformAndTenantPolicies(t *testing.T) {
 
 func TestEnsureRoleRejectsRoleTakeover(t *testing.T) {
 	api := &fakeAPI{roles: map[string][]string{"billing": {"arn:aws:iam::123456789012:role/other"}}}
-	if err := EnsureRole(context.Background(), api, awsEvent("billing", "app")); err == nil {
+	if err := EnsureRole(context.Background(), api, awsEvent("billing", "apps-reader")); err == nil {
 		t.Fatal("expected a different principal to be rejected")
 	}
 	for _, call := range api.calls {
@@ -189,14 +189,14 @@ func TestEnsureRoleRejectsRoleTakeover(t *testing.T) {
 
 func TestEnsureRoleRejectsPrincipalOnAnotherRole(t *testing.T) {
 	api := &fakeAPI{roles: map[string][]string{"payments": {appARN}}}
-	if err := EnsureRole(context.Background(), api, awsEvent("billing", "app")); err == nil {
+	if err := EnsureRole(context.Background(), api, awsEvent("billing", "apps-reader")); err == nil {
 		t.Fatal("expected an existing binding to be rejected")
 	}
 }
 
 func TestEnsureRoleUpdateKeepsTheSamePrincipal(t *testing.T) {
 	api := &fakeAPI{roles: map[string][]string{"billing": {appARN}}}
-	ev := awsEvent("billing", "app")
+	ev := awsEvent("billing", "apps-reader")
 	ev.Tf.Action = "update"
 	if err := EnsureRole(context.Background(), api, ev); err != nil {
 		t.Fatal(err)

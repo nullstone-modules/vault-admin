@@ -13,7 +13,7 @@ Both entrypoints call the same writer. An event names one app principal and the 
 | `aws` | `auth/aws` | IAM role or user ARN | `auth_type=iam`, `bound_iam_principal_arn` |
 | `gcp` | `auth/gcp` | Service account email | `type=iam`, `bound_service_accounts` |
 
-The writer enables the mount if needed and binds exactly one principal per role. It rejects platform policies (`operator`, `admin`, `apps-auth`, `provisioning`, `root`, `default`) and any `tenant-*` policy, a role name already bound to another principal, and a principal already bound to another role. The function holds the cluster's `apps-auth` token, which can write roles on these mounts and nothing else.
+The writer enables the mount if needed and binds exactly one principal per role. It grants only the cluster's tenant broker policies, `apps-reader` or `apps-writer`; platform, tenant, and custom policies are rejected. It also rejects a role name already bound to another principal, and a principal already bound to another role. The function holds the cluster's `apps-auth` token, which can write roles on these mounts and nothing else.
 
 `make package` builds the zip each module publishes. The Vault cluster references `api.nullstone.io/nullstone/aws-vault-admin/aws`.
 

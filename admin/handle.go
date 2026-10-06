@@ -15,6 +15,9 @@ import (
 
 var roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// Apps get a tenant broker policy and nothing else; the cluster defines these two.
+var appsPolicy = regexp.MustCompile(`^apps-(reader|writer)$`)
+
 var deniedPolicies = map[string]struct{}{
 	"admin":        {},
 	"apps-auth":    {},
@@ -185,7 +188,7 @@ func validatePolicies(policies []string) error {
 		if !roleName.MatchString(policy) {
 			return fmt.Errorf("invalid vault policy name")
 		}
-		if _, denied := deniedPolicies[policy]; denied || strings.HasPrefix(policy, "tenant-") {
+		if _, denied := deniedPolicies[policy]; denied || !appsPolicy.MatchString(policy) {
 			return fmt.Errorf("vault policy is not allowed")
 		}
 	}
