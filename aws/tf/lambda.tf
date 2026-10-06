@@ -1,9 +1,3 @@
-data "aws_region" "current" {}
-
-data "aws_prefix_list" "secretsmanager" {
-  name = "com.amazonaws.${data.aws_region.current.name}.secretsmanager"
-}
-
 resource "aws_security_group" "this" {
   name   = var.name
   vpc_id = var.network.vpc_id
@@ -19,13 +13,14 @@ resource "aws_security_group_rule" "to_vault" {
   source_security_group_id = var.network.vault_security_group_id
 }
 
+# Secrets Manager has no managed prefix list; the function reaches it over NAT or a VPC endpoint.
 resource "aws_security_group_rule" "to_secrets" {
   security_group_id = aws_security_group.this.id
   type              = "egress"
   protocol          = "tcp"
   from_port         = 443
   to_port           = 443
-  prefix_list_ids   = [data.aws_prefix_list.secretsmanager.id]
+  cidr_blocks       = ["0.0.0.0/0"]
 }
 
 resource "aws_security_group_rule" "vault_from_this" {
