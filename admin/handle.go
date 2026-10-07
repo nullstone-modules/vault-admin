@@ -66,11 +66,14 @@ type Event struct {
 }
 
 // EventData names one app principal: an IAM role or user ARN (aws) or a service account email (gcp).
+// Env is set only for a shared cluster: the app's entity then carries it, and the cluster's broker
+// policies scope the app to that env. Empty leaves identity untouched.
 type EventData struct {
 	Name      string   `json:"name"`
 	Method    string   `json:"method"`
 	Principal string   `json:"principal"`
 	Policies  []string `json:"policies"`
+	Env       string   `json:"env,omitempty"`
 }
 
 type EventTf struct {
@@ -131,21 +134,35 @@ func EnsureRole(ctx context.Context, api API, ev Event) error {
 	if !ok {
 		return fmt.Errorf("unknown auth method")
 	}
+	if ev.Data.Env != "" && !envName.MatchString(ev.Data.Env) {
+		return fmt.Errorf("invalid env name")
+	}
 	action := ev.Tf.Action
 	if action == "" {
 		action = "create"
 	}
 	switch action {
 	case "delete":
-		return deleteRole(ctx, api, ev.Data.Method, name)
+		return deleteRole(ctx, api, ev.Data.Method, name, ev.Data.Env != "")
 	case "create", "update":
-		return writeRole(ctx, api, ev.Data.Method, method, name, ev.Data)
+		if err := writeRole(ctx, api, ev.Data.Method, method, name, ev.Data); err != nil {
+			return err
+		}
+		if ev.Data.Env == "" {
+			return nil
+		}
+		return ensureEntity(ctx, api, ev.Data.Method, name, ev.Data.Env)
 	default:
 		return fmt.Errorf("invalid action")
 	}
 }
 
-func deleteRole(ctx context.Context, api API, mount, name string) error {
+func deleteRole(ctx context.Context, api API, mount, name string, withEntity bool) error {
+	if withEntity {
+		if err := deleteEntity(ctx, api, mount, name); err != nil {
+			return err
+		}
+	}
 	status, _, err := api.Call(ctx, http.MethodDelete, "/v1/auth/"+mount+"/role/"+name, nil)
 	if err != nil {
 		return err

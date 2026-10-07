@@ -13,7 +13,7 @@ package: build
 	go mod vendor
 	cp gcp/main.go main.go
 	rm -f gcp/tf/files/vault-admin.zip
-	zip -r gcp/tf/files/vault-admin.zip go.mod go.sum main.go admin/handle.go vendor
+	zip -r gcp/tf/files/vault-admin.zip go.mod go.sum main.go admin vendor -x "admin/*_test.go"
 	rm -f main.go
 
 test:
