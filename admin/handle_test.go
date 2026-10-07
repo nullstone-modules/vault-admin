@@ -15,11 +15,92 @@ type recorded struct {
 }
 
 // fakeAPI serves one auth mount (default aws). roles maps role name to its bound principals.
+// Identity: entities maps entity name to id, aliases maps "<alias name>@<accessor>" to the entity id it points at.
 type fakeAPI struct {
 	mount   string
 	calls   []recorded
 	roles   map[string][]string
 	missing bool
+
+	entities map[string]string
+	aliases  map[string]string
+}
+
+const fakeAccessor = "auth_fake_accessor"
+
+func (f *fakeAPI) identityCalls() []recorded {
+	var out []recorded
+	for _, c := range f.calls {
+		if strings.HasPrefix(c.path, "/v1/identity/") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// identity handles the identity API and sys/auth; ok is false when path is not one of those.
+func (f *fakeAPI) identity(method, path string, body any) (int, []byte, bool) {
+	if method == "GET" && path == "/v1/sys/auth" {
+		raw, _ := json.Marshal(map[string]any{"data": map[string]any{f.mountName() + "/": map[string]any{"accessor": fakeAccessor}}})
+		return 200, raw, true
+	}
+	if !strings.HasPrefix(path, "/v1/identity/") {
+		return 0, nil, false
+	}
+	if f.entities == nil {
+		f.entities = map[string]string{}
+	}
+	if f.aliases == nil {
+		f.aliases = map[string]string{}
+	}
+	params, _ := body.(map[string]any)
+	switch {
+	case strings.HasPrefix(path, "/v1/identity/entity/name/"):
+		name := strings.TrimPrefix(path, "/v1/identity/entity/name/")
+		switch method {
+		case "POST":
+			if _, ok := f.entities[name]; !ok {
+				f.entities[name] = "ent-" + name
+			}
+			return 204, nil, true
+		case "GET":
+			id, ok := f.entities[name]
+			if !ok {
+				return 404, nil, true
+			}
+			raw, _ := json.Marshal(map[string]any{"data": map[string]any{"id": id}})
+			return 200, raw, true
+		case "DELETE":
+			if _, ok := f.entities[name]; !ok {
+				return 404, nil, true
+			}
+			delete(f.entities, name)
+			return 204, nil, true
+		}
+	case path == "/v1/identity/lookup/entity" && method == "POST":
+		key := params["alias_name"].(string) + "@" + params["alias_mount_accessor"].(string)
+		id, ok := f.aliases[key]
+		if !ok {
+			return 204, nil, true
+		}
+		raw, _ := json.Marshal(map[string]any{"data": map[string]any{
+			"id":      id,
+			"aliases": []map[string]any{{"id": "alias-" + key, "name": params["alias_name"], "mount_accessor": params["alias_mount_accessor"]}},
+		}})
+		return 200, raw, true
+	case path == "/v1/identity/entity-alias" && method == "POST":
+		key := params["name"].(string) + "@" + params["mount_accessor"].(string)
+		if existing, ok := f.aliases[key]; ok && existing != params["canonical_id"].(string) {
+			return 400, []byte("alias already in use"), true
+		}
+		f.aliases[key] = params["canonical_id"].(string)
+		return 200, []byte(`{"data":{"id":"alias-` + key + `"}}`), true
+	case strings.HasPrefix(path, "/v1/identity/entity-alias/id/") && method == "DELETE":
+		key := strings.TrimPrefix(strings.TrimPrefix(path, "/v1/identity/entity-alias/id/"), "alias-")
+		delete(f.aliases, key)
+		return 204, nil, true
+	}
+	return 405, nil, true
 }
 
 func (f *fakeAPI) mountName() string {
@@ -35,6 +116,9 @@ func (f *fakeAPI) rolePath() string {
 
 func (f *fakeAPI) Call(_ context.Context, method, path string, body any) (int, []byte, error) {
 	f.calls = append(f.calls, recorded{method: method, path: path, body: body})
+	if status, raw, ok := f.identity(method, path, body); ok {
+		return status, raw, nil
+	}
 	if method == "POST" && strings.HasPrefix(path, "/v1/sys/auth/") {
 		return 400, []byte("path is already in use"), nil
 	}
@@ -60,7 +144,7 @@ func (f *fakeAPI) Call(_ context.Context, method, path string, body any) (int, [
 			return 404, nil, nil
 		}
 		field := authMethods[f.mountName()].boundField
-		raw, err := json.Marshal(map[string]any{"data": map[string]any{field: principals}})
+		raw, err := json.Marshal(map[string]any{"data": map[string]any{field: principals, "role_id": "rid-" + name}})
 		if err != nil {
 			return 500, nil, err
 		}
