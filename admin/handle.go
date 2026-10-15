@@ -184,15 +184,15 @@ func writeRole(ctx context.Context, api API, mount string, method authMethod, na
 	if err := validatePolicies(policies); err != nil {
 		return err
 	}
-	if err := enableAuth(ctx, api, mount); err != nil {
-		return err
-	}
 	if err := guardBinding(ctx, api, mount, method, name, data.Principal); err != nil {
 		return err
 	}
 	status, _, err := api.Call(ctx, http.MethodPost, "/v1/auth/"+mount+"/role/"+name, method.roleBody(data.Principal, policies))
 	if err != nil {
 		return err
+	}
+	if status == http.StatusNotFound {
+		return ErrAuthNotEnabled{Mount: mount}
 	}
 	if status >= 400 {
 		return fmt.Errorf("write role failed: %d", status)
@@ -208,17 +208,6 @@ func validatePolicies(policies []string) error {
 		if _, denied := deniedPolicies[policy]; denied || !appsPolicy.MatchString(policy) {
 			return fmt.Errorf("vault policy is not allowed")
 		}
-	}
-	return nil
-}
-
-func enableAuth(ctx context.Context, api API, mount string) error {
-	status, body, err := api.Call(ctx, http.MethodPost, "/v1/sys/auth/"+mount, map[string]string{"type": mount})
-	if err != nil {
-		return err
-	}
-	if status >= 400 && !bytes.Contains(body, []byte("already in use")) {
-		return fmt.Errorf("enable %s auth failed: %d", mount, status)
 	}
 	return nil
 }

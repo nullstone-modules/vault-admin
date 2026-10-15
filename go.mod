@@ -5,13 +5,12 @@ go 1.26.5
 require (
 	github.com/GoogleCloudPlatform/functions-framework-go v1.9.2
 	github.com/aws/aws-lambda-go v1.47.0
+	github.com/aws/aws-sdk-go-v2 v1.41.2
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
-	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.35.6
 )
 
 require (
 	cloud.google.com/go/functions v1.19.3 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.41.2 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.67 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.30 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.35 // indirect

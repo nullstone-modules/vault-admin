@@ -3,3 +3,4 @@ aws/tf/files/vault-admin.zip
 gcp/tf/files/vault-admin.zip
 *.tar.gz
 vendor/
+.terraform/

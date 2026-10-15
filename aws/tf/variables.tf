@@ -15,10 +15,6 @@ variable "vault_port" {
   type = number
 }
 
-variable "token_secret_arn" {
-  type = string
-}
-
 variable "network" {
   type = object({
     vpc_id                  = string
