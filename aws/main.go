@@ -26,7 +26,7 @@ func handle(ctx context.Context, ev admin.Event) error {
 	if err != nil {
 		return err
 	}
-	body, err := iamLoginBody(ctx, creds, admin.AppsAuthRole, os.Getenv("AWS_REGION"), time.Now())
+	body, err := iamLoginBody(ctx, creds, admin.AppsAuthRole, time.Now())
 	if err != nil {
 		return err
 	}
