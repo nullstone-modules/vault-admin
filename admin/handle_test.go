@@ -21,6 +21,8 @@ type fakeAPI struct {
 	calls   []recorded
 	roles   map[string][]string
 	missing bool
+	// unmounted answers every role call as Vault does without the auth mount.
+	unmounted bool
 
 	entities map[string]string
 	aliases  map[string]string
@@ -119,8 +121,8 @@ func (f *fakeAPI) Call(_ context.Context, method, path string, body any) (int, [
 	if status, raw, ok := f.identity(method, path, body); ok {
 		return status, raw, nil
 	}
-	if method == "POST" && strings.HasPrefix(path, "/v1/sys/auth/") {
-		return 400, []byte("path is already in use"), nil
+	if f.unmounted && strings.HasPrefix(path, f.rolePath()) {
+		return 404, []byte(`{"errors":["no handler for route"]}`), nil
 	}
 	if method == "LIST" && path == f.rolePath() {
 		if f.roles == nil {
@@ -208,8 +210,10 @@ func TestEnsureRoleWritesGCPServiceAccounts(t *testing.T) {
 	if body["type"] != "iam" || len(sas) != 1 || sas[0] != "app@proj.iam.gserviceaccount.com" {
 		t.Fatalf("body = %#v", body)
 	}
-	if api.calls[0].path != "/v1/sys/auth/gcp" {
-		t.Fatalf("first call = %#v", api.calls[0])
+	for _, c := range api.calls {
+		if strings.HasPrefix(c.path, "/v1/sys/auth/") {
+			t.Fatalf("the function must not enable mounts: %#v", c)
+		}
 	}
 }
 
@@ -315,5 +319,13 @@ func TestEnsureRoleRejectsUnknownAction(t *testing.T) {
 	}
 	if len(api.calls) != 0 {
 		t.Fatalf("calls = %#v", api.calls)
+	}
+}
+
+func TestEnsureRoleNamesTheMissingMount(t *testing.T) {
+	api := &fakeAPI{unmounted: true}
+	err := EnsureRole(context.Background(), api, awsEvent("billing", "apps-reader"))
+	if err == nil || !strings.Contains(err.Error(), "auth/aws not enabled") {
+		t.Fatalf("err = %v", err)
 	}
 }

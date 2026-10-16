@@ -2,44 +2,47 @@ package main
 
 import (
 	"context"
-	"errors"
+	"log"
 	"os"
-	"strings"
+	"time"
 
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/secretsmanager"
 	"github.com/nullstone-modules/vault-admin/admin"
 )
-
-var errEmptyToken = errors.New("vault token is empty")
 
 func main() {
 	lambda.Start(handle)
 }
 
+// handle logs in to Vault through auth/aws with the function's execution role, writes the role, and
+// revokes its token. The cluster binds that role on auth/aws/role/apps-auth at bootstrap.
 func handle(ctx context.Context, ev admin.Event) error {
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return err
 	}
-	secretID := os.Getenv("VAULT_TOKEN_SECRET_ID")
-	out, err := secretsmanager.NewFromConfig(cfg).GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{
-		SecretId: &secretID,
-	})
+	creds, err := cfg.Credentials.Retrieve(ctx)
 	if err != nil {
 		return err
 	}
-	token := ""
-	if out.SecretString != nil {
-		token = strings.TrimSpace(*out.SecretString)
+	body, err := iamLoginBody(ctx, creds, admin.AppsAuthRole, os.Getenv("AWS_REGION"), time.Now())
+	if err != nil {
+		return err
 	}
-	if token == "" {
-		return errEmptyToken
-	}
-	return admin.EnsureRole(ctx, admin.HTTPAPI{
+	api := admin.HTTPAPI{
 		Addr:          os.Getenv("VAULT_ADDR"),
-		Token:         token,
 		TLSServerName: os.Getenv("VAULT_TLS_SERVER_NAME"),
-	}, ev)
+	}
+	token, err := admin.Login(ctx, api, "aws", admin.AppsAuthRole, body)
+	if err != nil {
+		return err
+	}
+	api.Token = token
+	defer func() {
+		if err := admin.RevokeSelf(ctx, api); err != nil {
+			log.Printf("revoke token: %v", err)
+		}
+	}()
+	return admin.EnsureRole(ctx, api, ev)
 }
