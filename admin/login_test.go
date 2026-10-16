@@ -30,12 +30,17 @@ func TestLoginReturnsTheClientToken(t *testing.T) {
 
 func TestLoginNamesTheCause(t *testing.T) {
 	cases := map[int]string{
-		403: "not bound on auth/aws/role/apps-auth",
+		400: `vault login failed: 400: IAM Principal "arn:aws:sts::1:assumed-role/x/y" does not belong to the role "apps-auth" (if the principal is not bound, run bootstrap or configure`,
+		403: "vault login failed: 403: permission denied (auth/aws is not a login path",
 		404: "auth/aws not enabled",
-		500: "vault login failed: 500",
+		500: "vault login failed: 500: permission denied",
 	}
 	for status, want := range cases {
-		api := &loginAPI{status: status, body: `{"errors":["permission denied"]}`}
+		body := `{"errors":["permission denied"]}`
+		if status == 400 {
+			body = `{"errors":["IAM Principal \"arn:aws:sts::1:assumed-role/x/y\" does not belong to the role \"apps-auth\""]}`
+		}
+		api := &loginAPI{status: status, body: body}
 		_, err := Login(context.Background(), api, "aws", "apps-auth", nil)
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Fatalf("%d: err = %v, want %q", status, err, want)

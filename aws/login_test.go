@@ -12,10 +12,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 )
 
-func TestIAMLoginBodySignsForTheRegion(t *testing.T) {
+func TestIAMLoginBodySignsForTheGlobalEndpoint(t *testing.T) {
 	creds := aws.Credentials{AccessKeyID: "AKIAFAKEFAKEFAKEFAKE", SecretAccessKey: "FAKE-secret", SessionToken: "FAKE-session"}
 	at := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
-	body, err := iamLoginBody(context.Background(), creds, "apps-auth", "us-west-2", at)
+	body, err := iamLoginBody(context.Background(), creds, "apps-auth", at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestIAMLoginBodySignsForTheRegion(t *testing.T) {
 	if body["role"] != "apps-auth" || body["iam_http_request_method"] != "POST" {
 		t.Fatalf("body = %v", body)
 	}
-	if got := dec("iam_request_url"); got != "https://sts.us-west-2.amazonaws.com/" {
+	if got := dec("iam_request_url"); got != "https://sts.amazonaws.com/" {
 		t.Fatalf("url = %s", got)
 	}
 	if got := dec("iam_request_body"); got != stsBody {
@@ -40,7 +40,7 @@ func TestIAMLoginBodySignsForTheRegion(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth := headers.Get("Authorization")
-	if !strings.HasPrefix(auth, "AWS4-HMAC-SHA256 Credential=AKIAFAKEFAKEFAKEFAKE/20261015/us-west-2/sts/aws4_request") {
+	if !strings.HasPrefix(auth, "AWS4-HMAC-SHA256 Credential=AKIAFAKEFAKEFAKEFAKE/20261015/us-east-1/sts/aws4_request") {
 		t.Fatalf("authorization = %s", auth)
 	}
 	if !strings.Contains(auth, "content-length") || !strings.Contains(auth, "content-type") || !strings.Contains(auth, "x-amz-security-token") {
@@ -51,12 +51,5 @@ func TestIAMLoginBodySignsForTheRegion(t *testing.T) {
 	}
 	if headers.Get("Content-Length") != "43" {
 		t.Fatalf("content-length = %q", headers.Get("Content-Length"))
-	}
-}
-
-func TestStsEndpointFallsBackToGlobal(t *testing.T) {
-	url, region := stsEndpoint("")
-	if url != "https://sts.amazonaws.com/" || region != "us-east-1" {
-		t.Fatalf("%s %s", url, region)
 	}
 }

@@ -187,7 +187,7 @@ func writeRole(ctx context.Context, api API, mount string, method authMethod, na
 	if err := guardBinding(ctx, api, mount, method, name, data.Principal); err != nil {
 		return err
 	}
-	status, _, err := api.Call(ctx, http.MethodPost, "/v1/auth/"+mount+"/role/"+name, method.roleBody(data.Principal, policies))
+	status, raw, err := api.Call(ctx, http.MethodPost, "/v1/auth/"+mount+"/role/"+name, method.roleBody(data.Principal, policies))
 	if err != nil {
 		return err
 	}
@@ -195,7 +195,7 @@ func writeRole(ctx context.Context, api API, mount string, method authMethod, na
 		return ErrAuthNotEnabled{Mount: mount}
 	}
 	if status >= 400 {
-		return fmt.Errorf("write role failed: %d", status)
+		return statusError("write role failed", status, raw, "")
 	}
 	return nil
 }
@@ -222,7 +222,7 @@ func guardBinding(ctx context.Context, api API, mount string, method authMethod,
 		return nil
 	}
 	if status >= 400 {
-		return fmt.Errorf("list roles failed: %d", status)
+		return statusError("list roles failed", status, body, "")
 	}
 	var listed struct {
 		Data struct {
@@ -267,7 +267,7 @@ func readBoundPrincipals(ctx context.Context, api API, mount string, method auth
 		return nil, false, nil
 	}
 	if status >= 400 {
-		return nil, false, fmt.Errorf("read role failed: %d", status)
+		return nil, false, statusError("read role failed", status, body, "")
 	}
 	var role struct {
 		Data map[string]json.RawMessage `json:"data"`
